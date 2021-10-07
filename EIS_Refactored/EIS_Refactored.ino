@@ -1,44 +1,14 @@
 #include <ADC.h>
 #include <ADC_util.h>
-
-
-#if defined(__AVR_ATmega32U4__)
-  #define BOARD "Teensy 2.0"
-#elif defined(__AVR_AT90USB1286__)       
-  #define BOARD "Teensy++ 2.0"
-#elif defined(__MK20DX128__)       
-  #define BOARD "Teensy 3.0"
-#elif defined(__MK20DX256__)       
-  #define BOARD "Teensy 3.2" // and Teensy 3.1 (obsolete)
-#elif defined(__MKL26Z64__)       
-  #define BOARD "Teensy LC"
-#elif defined(__MK64FX512__)
-  #define BOARD "Teensy 3.5"
-#elif defined(__MK66FX1M0__)
-  #define BOARD "Teensy 3.6"
-#elif defined(ARDUINO_TEENSY40)
-  #define BOARD_TYPE "TEENSY 4.0"
-#elif defined(ARDUINO_TEENSY41)
-  #define BOARD_TYPE "TEENSY 4.1"
-#else
-  #define BOARD "Unknown board"
-#endif
+#include "boardnames.h"
 
 #define PI 3.1415926535897932384626433832795
 
-#define PINS 27
-
-
-
-uint8_t adc_pins[] = {A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10,
-                      A11, A12, A13, A14, A15, A16, A17, A18, A19, A20, A21, A22, A23, A24, A25, A26
-                     };
-
-
 ADC *adc = new ADC(); // adc object;
-//ADC::Sync_result sr; //for reading data
-//three timers,
-//the last for flashing the diode and to show teensy is running
+
+// ADC::Sync_result sr; //for reading data
+// three timers,
+// the last for flashing the diode and to show teensy is running
 IntervalTimer baseTimer;
 
 
@@ -118,7 +88,7 @@ void setTransientDACValue(){
         analogWrite(DAC_OUT, tmp);
         Serial.print("Transient DAC value requested: ");
         //Serial.println(tmp);
-        delay(5000);
+        delay(1000);
         analogWrite(DAC_OUT, 0);
         dacDisable();
       } else {
@@ -132,7 +102,7 @@ void testTransientDACValue(){
       //test we expect the zero value
       commandBuffer[0] = ' ';
       float tmp = atof(commandBuffer);
-      if (((tmp >= 1) & (tmp <= 4095))) {
+      if (((tmp >= 0) & (tmp <= 4095))) {
         dacEnable();
         // analogWrite(DAC_OUT, zeroVal);
         analogWrite(DAC_OUT, tmp);
@@ -178,10 +148,10 @@ void testTransientDACValue(){
         Serial.print("Channel 1 single:");
         Serial.println(x1s);
         Serial.flush();
-
-
-      } else
-        Serial.println("Oout of range");
+      } else {
+        Serial.println("Out of range");
+        Serial.flush();
+      }
 }
 
 void setProbeFrequency(){
@@ -214,7 +184,7 @@ void setProbeDCValue(){
   //this is a zero change request
       commandBuffer[0] = ' ';
       float tmp = atof(commandBuffer);
-      if (((tmp >= 1) & (tmp <= 4095))) {
+      if (((tmp >= 0) & (tmp <= 4095))) {
         zeroVal = (int)tmp;
         sprintf(buf, "Probe DCValue set to %d", zeroVal);
         Serial.println(buf);
@@ -237,46 +207,6 @@ void setSamplingFrequency(){
     sprintf(buf, "E06 requested sampling frequency %f out of range, sampling frequency kept at %f ", tmp, samplingFreq);
     Serial.println(buf);
   }
-}
-
-void processK(){  //Obsolete? 
-  
-      Serial.println("DEBUG Fast mode");
-      //this is a fast mode  request
-      //Serial.print("Got a fast request ");
-      //Serial.println(commandBuffer);
-      commandBuffer[0] = ' ';
-      a1 = atof(commandBuffer);
-      if (a1 == 0.0) {
-        DO_FAST = false;
-        Serial.print("DEBUG Normal mode\n");
-        Serial.flush();
-
-      } else {
-        char *p = strstr(commandBuffer, ",");
-        
-        for (int x = 0; x < p - commandBuffer + 1; x++)
-          commandBuffer[x] = ' ';
-          
-        //Serial.println(commandBuffer);
-        a3 = atof(commandBuffer);
-        //Serial.print("A3:");
-        //Serial.println(a3,5);
-        p = strstr(commandBuffer, ",");
-        //Serial.println(p);
-        for (int x = 0; x < p - commandBuffer + 1; x++)
-          commandBuffer[x] = ' ';
-        a5 = atof(commandBuffer);
-        //Serial.print("A5:");
-        //Serial.println(a5,5);
-        DO_FAST = true;
-        Serial.print("DEBUG Fast mode: ");
-        Serial.print(a1, 5);
-        Serial.print(" ");
-        Serial.print(a3, 5);
-        Serial.print(" ");
-        Serial.print(a5, 5);
-      }
 }
 
 //interrupt functions
@@ -304,8 +234,6 @@ void serialEvent() {
       printBoardParameters();
     } else if (commandBuffer[0] == 'T' ) {
       setTransientDACValue();
-    } else if (commandBuffer[0] == 'K') {
-      processK();
     } else {
       //command not recognized 
       Serial.println("DEBUG: Command not recognized: ");
@@ -332,7 +260,7 @@ void dacDisable() {
   //disable  the DAC output
   Serial.println("DEBUG: DAC Disabled");
   Serial.flush();
-  DAC0_C0 &= ~DAC_C0_DACEN;
+  DAC0_C0 &= ~( DAC_C0_DACEN  | DAC_C0_DACRFS);
   pinMode(DAC_OUT, INPUT);
 }
 
@@ -341,7 +269,7 @@ void dacEnable() {
   Serial.println("DEBUG: DAC Enabled");
   Serial.flush();
   SIM_SCGC2 |= SIM_SCGC2_DAC0;
-  DAC0_C0 = DAC_C0_DACEN;
+  DAC0_C0 = DAC_C0_DACEN  | DAC_C0_DACRFS;
   pinMode(DAC_OUT, OUTPUT);
 }
 
@@ -679,7 +607,7 @@ void setup() {
   Serial.flush();
   SIM_SCGC2 |= SIM_SCGC2_DAC0;
   DAC0_C0 = DAC_C0_DACEN;  // 1.2V ref is DACREF_1
-  analogReference(1);  // 1: Vref set to 1.2V
+  analogReference(0);  // 1: Vref set to 1.2V, 0: Vref set to 3.3 V
   //setAdc0ForAcq();
   //setAdc1ForAcq();
   adc->resetError();
