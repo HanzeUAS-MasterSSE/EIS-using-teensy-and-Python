@@ -1,59 +1,58 @@
+// The code in this sketch is based on code provided by the authors of the paper:
+//   'Electrochemical Impedance Spectroscopy System Based on a Teensy Board', 
+//   Leila Es Sebar, Leonardo Iannucci, Emma Angelini, Sabrina Grassini, and Marco Parvis,
+//   IEEE TRANSACTIONS ON INSTRUMENTATION AND MEASUREMENT, VOL. 70, 2021
+// 
+// It was refactored and rewritten for use with the Python serial module by:
+//      Ronald van Elburg (www.vanelburg.eu)
+
 #include <ADC.h>
 #include <ADC_util.h>
 #include "boardnames.h"
 
 #define PI 3.1415926535897932384626433832795
 
-ADC *adc = new ADC(); // adc object;
-
-// ADC::Sync_result sr; //for reading data
-// three timers,
-// the last for flashing the diode and to show teensy is running
+// Create a timer for flashing the diode and to show teensy is running
 IntervalTimer baseTimer;
 
 
-/*
-  unsigned long st;
-  unsigned long  en;
-  unsigned long dt;
-*/
-#define DAC_OUT A21
+// Create an ADC object for managing the analog to digital converter.
+// The analog to digital converter is used to measure the system response,
+// while the digital to analog converter is used to define the stimulus.
+ADC *adc = new ADC(); // adc object;
+
+
+// Give the pins in use a name
+const int pin_writeDAC = A21;   
+const int pin_readD = A10; // ADC0
+const int pin_readM = A11; // ADC0
+const int pin_read2 = A16; // ADC1
+
 
 // Create an array for storing the stimulus
-#define BUFFER_SIZE 2000
+const int stimulus_length = 2000;
+static volatile uint16_t stimulus_table[stimulus_length];
+volatile uint16_t pOut = 0;   //  position in output array
 
-static volatile uint16_t sinetableL[BUFFER_SIZE];
-volatile uint16_t pOut = 0;
 
+// Define stimulus parameters 
+float f_requested = 50000;   // stimulus frequency
+float A_stimulus = 0.2;     // stimulus amplitude
+int DC_offset_stimulus = 2000;               // stimulus DC offset
 
-float realFreq = 0;
-float reqFreq = 50000;
-uint32_t freq = 0;
-float samplingFreq = 0;
-
-const int readPinD = A10; // ADC0
-const int readPinM = A11; // ADC0
-const int readPin2 = A16; // ADC1
+float f_realized = 0;
+float f_sampling = 0;
 
 const int SKIP = 1000;
 int skipped = 0;
 
 
-const int NM = BUFFER_SIZE; //5000 samples
+// Allocate memory for storing the measured response
+volatile short int V1[stimulus_length]; //loaded by channel 0
+volatile unsigned short int V2[stimulus_length]; // loaded by channel1
 
-volatile  short int V1[NM]; //loaded by channel 0
-volatile unsigned short int V2[NM]; // loaded by channel1
 volatile int p1 = 0;
 volatile int p2 = 0;
-
-
-float genAmplitude = 0.2;
-int zeroVal = 2000;
-
-float a1 = 0.0;
-float a3 = 0.0;
-float a5 = 0.0;
-boolean DO_FAST = false;
 
 
 // We need to buffer the serial chars.
@@ -68,16 +67,6 @@ void clearBuffer() {
   bufferPos = 0;
 }
 
-void printBoardParameters(){
-  //identify the used teensy
-      Serial.print ("Board: ");
-      Serial.print(BOARD);
-      Serial.print (", BUS frequency: ");
-      Serial.print (F_BUS / 1000000) ;
-      Serial.print (", CPU frequency: ");
-      Serial.println(F_CPU / 1000000);
-      Serial.flush();
-}
 
 void setTransientDACValue(){
       commandBuffer[0] = ' ';
@@ -85,11 +74,11 @@ void setTransientDACValue(){
       
       if (((tmp >= 0) & (tmp <= 4095))) {
         dacEnable();
-        analogWrite(DAC_OUT, tmp);
+        analogWrite(pin_writeDAC, tmp);
         Serial.print("Transient DAC value requested: ");
         //Serial.println(tmp);
         delay(1000);
-        analogWrite(DAC_OUT, 0);
+        analogWrite(pin_writeDAC, 0);
         dacDisable();
       } else {
         Serial.println("Transient DAC value requested is out of range");
@@ -104,8 +93,8 @@ void testTransientDACValue(){
       float tmp = atof(commandBuffer);
       if (((tmp >= 0) & (tmp <= 4095))) {
         dacEnable();
-        // analogWrite(DAC_OUT, zeroVal);
-        analogWrite(DAC_OUT, tmp);
+        // analogWrite(pin_writeDAC, DC_offset_stimulus);
+        analogWrite(pin_writeDAC, tmp);
         //*(volatile int16_t *)&(DAC0_DAT0L) = tmp;
         delay(100);
 
@@ -121,16 +110,16 @@ void testTransientDACValue(){
         adc->adc1->disableCompare();
 
         for (int i = 0; i < 10; i++) {
-          adc->adc0->analogReadDifferential(readPinD, readPinM);
-          adc->adc1->analogRead(readPin2);
+          adc->adc0->analogReadDifferential(pin_readD, pin_readM);
+          adc->adc1->analogRead(pin_read2);
         }
         //make some reads
         int x0d = 0;
         unsigned int x1s = 0;
         int NM_ = 500;   //RvE add underscore to variable name, potential conflict with global NM
         for (int i = 0; i < NM_; i++) {
-          int x0dv = adc->adc0->analogReadDifferential(readPinD, readPinM);
-          unsigned int x1sv = adc->adc1->analogRead(readPin2);
+          int x0dv = adc->adc0->analogReadDifferential(pin_readD, pin_readM);
+          unsigned int x1sv = adc->adc1->analogRead(pin_read2);
 
           x0d += x0dv;
           x1s += x1sv;
@@ -159,8 +148,8 @@ void setProbeFrequency(){
     //this is an output frequency request
     commandBuffer[0] = ' ';
     float tmp = atof(commandBuffer);
-    reqFreq = tmp;
-    sprintf(buf, "Probe frequency set to: %f", reqFreq);
+    f_requested = tmp;
+    sprintf(buf, "Probe frequency set to: %f", f_requested);
     Serial.println(buf);
 }
 
@@ -170,8 +159,8 @@ void setProbeAmplitude(){
     commandBuffer[0] = ' ';
     float tmp = atof(commandBuffer);
     if (((tmp >= 0.01) & (tmp <= 0.6))) {
-      genAmplitude = tmp;
-      sprintf(buf, "Probe amplitude set to %f", genAmplitude);
+      A_stimulus = tmp;
+      sprintf(buf, "Probe amplitude set to %f", A_stimulus);
       Serial.println(buf);
     } else {
       sprintf(buf, "E05 Probe amplitude out of range, amplitude given: %f, maximum allowed: %f", tmp, 0.6);
@@ -185,8 +174,8 @@ void setProbeDCValue(){
       commandBuffer[0] = ' ';
       float tmp = atof(commandBuffer);
       if (((tmp >= 0) & (tmp <= 4095))) {
-        zeroVal = (int)tmp;
-        sprintf(buf, "Probe DCValue set to %d", zeroVal);
+        DC_offset_stimulus = (int)tmp;
+        sprintf(buf, "Probe DCValue set to %d", DC_offset_stimulus);
         Serial.println(buf);
       } else {
         sprintf(buf, "E05 Probe DCValue requested:  %f is out of range maximum value allowed: %f", tmp, 4095.0);
@@ -200,11 +189,11 @@ void setSamplingFrequency(){
   commandBuffer[0] = ' ';
   float tmp = atof(commandBuffer);
   if ((tmp <= 575000) & (tmp >= 1)) {
-    samplingFreq = tmp;
+    f_sampling = tmp;
     sprintf(buf, "Sampling frequency for measuremnt set to %f", tmp);
     Serial.println(buf);
   } else {
-    sprintf(buf, "E06 requested sampling frequency %f out of range, sampling frequency kept at %f ", tmp, samplingFreq);
+    sprintf(buf, "E06 requested sampling frequency %f out of range, sampling frequency kept at %f ", tmp, f_sampling);
     Serial.println(buf);
   }
 }
@@ -225,7 +214,7 @@ void serialEvent() {
     }  else if (commandBuffer[0] == 'G') {
       setSamplingFrequency();
     }  else if (commandBuffer[0] == 'M') {
-      startMeasurement(samplingFreq);
+      startMeasurement(f_sampling);
     } else if (commandBuffer[0] == 'Z') {
       measureOCP();
     } else if (commandBuffer[0] == 'D' ) {
@@ -243,7 +232,7 @@ void serialEvent() {
   } else {
     //not a \n
     //if possible queue the chars
-    if (bufferPos < BUFFER_SIZE - 1) {
+    if (bufferPos < stimulus_length - 1) {
       commandBuffer[bufferPos++] = inChar;
     } else {
       Serial.print("DEBUG: Message too long  ");
@@ -261,7 +250,7 @@ void dacDisable() {
   Serial.println("DEBUG: DAC Disabled");
   Serial.flush();
   DAC0_C0 &= ~( DAC_C0_DACEN  | DAC_C0_DACRFS);
-  pinMode(DAC_OUT, INPUT);
+  pinMode(pin_writeDAC, INPUT);
 }
 
 void dacEnable() {
@@ -270,14 +259,14 @@ void dacEnable() {
   Serial.flush();
   SIM_SCGC2 |= SIM_SCGC2_DAC0;
   DAC0_C0 = DAC_C0_DACEN  | DAC_C0_DACRFS;
-  pinMode(DAC_OUT, OUTPUT);
+  pinMode(pin_writeDAC, OUTPUT);
 }
 
 void measureOCP() {
 
   char buf[100];
   //this is an initial OCP measurement request 
-  //be sure the output is disconnected ad the DAC turned off
+  //be sure the output is disconnected and the DAC turned off
   //disableBothPGA();
   //dacDisable();
   adc->resetError();
@@ -295,10 +284,10 @@ void measureOCP() {
   uint32_t v1 = 0;
   //int dummy=0;
   for (int i = 0; i < 10; i++) {
-    adc->adc1->analogRead(readPin2); // read a new value, will return ADC_ERROR_VALUE if the comparison is false.
+    adc->adc1->analogRead(pin_read2); // read a new value, will return ADC_ERROR_VALUE if the comparison is false.
   }
   for (int i = 0; i < NR; i++) {
-    uint16_t x = adc->adc1->analogRead(readPin2); // read a new value, will return ADC_ERROR_VALUE if the comparison is false.
+    uint16_t x = adc->adc1->analogRead(pin_read2); // read a new value, will return ADC_ERROR_VALUE if the comparison is false.
     v1 += x;
   }
   uint16_t ocpValue = v1 / NR;
@@ -309,12 +298,13 @@ void measureOCP() {
 
 void startMeasurement(float freq) {
   //clear inputs just in case
-  for (int i = 0; i < BUFFER_SIZE; i++) {
+  for (int i = 0; i < stimulus_length; i++) {
     V1[i] = 0;
     V2[i] = 0;
   }
 
   dacEnable();
+  
   //be sure the adc is set for acquire
   setAdc0ForAcq();
   setAdc1ForAcq();
@@ -324,14 +314,14 @@ void startMeasurement(float freq) {
   p2 = 0;
   pOut = 0;
 
-  realFreq = loadSineTable(reqFreq, freq);
+  f_realized = loadSineTable(f_requested, freq);
   Serial.print("DEBUG Start pdb with frequency ");
   Serial.print(freq);
   Serial.print(" Hz.");
   Serial.print(" Generated freq ");
-  Serial.println(realFreq);
+  Serial.println(f_realized);
   Serial.flush();
-  if (realFreq <= 0.1) {
+  if (f_realized <= 0.1) {
     adc->adc0->setAveraging(4); // set number of averages
     adc->adc1->setAveraging(4); // set number of averages
     Serial.println("AVG");
@@ -344,126 +334,78 @@ void startMeasurement(float freq) {
   }
 
   adc->adc0->stopPDB();
-  //adc->adc0->startSingleRead(readPinD);// call this to setup everything before the pdb starts, differential is also possible
-  adc->adc0->startSingleDifferential(readPinD, readPinM);// call this to setup everything before the pdb starts, differential is also possible
+  //adc->adc0->startSingleRead(pin_readD);// call this to setup everything before the pdb starts, differential is also possible
+  adc->adc0->startSingleDifferential(pin_readD, pin_readM);// call this to setup everything before the pdb starts, differential is also possible
   adc->adc0->enableInterrupts(adc0_isr, 200);
   adc->adc0->startPDB(freq); //frequency in Hz
   adc->adc1->stopPDB();
-  adc->adc1->startSingleRead(readPin2); // call this to setup everything before the pdb starts
+  adc->adc1->startSingleRead(pin_read2); // call this to setup everything before the pdb starts
   adc->adc1->enableInterrupts(adc1_isr, 201);
   adc->adc1->startPDB(freq); //frequency in Hz
 
 }
 
 
-float loadSineTable(float freq, float samplingFreq) {
+float loadSineTable(float freq, float f_sampling) {
   float nPer = -1.0;
-  // cleanf the sine table
-  for (int x = 0 ; x < BUFFER_SIZE ; x++) {
-    sinetableL[x] = 0;
+  
+  // clean the sine table
+  for (int x = 0 ; x < stimulus_length ; x++) {
+    stimulus_table[x] = 0;
   }
 
-
-  float dur = BUFFER_SIZE * (1.0 / samplingFreq);
+  float dur = stimulus_length * (1.0 / f_sampling);
 
   if (freq < 10000) {
     nPer = (int)(0.5 + dur * freq);
   } else {
     nPer = (int)(0.5 + dur * freq) - 1;
   }
-  float realFreq = 1.0 / (dur / nPer);
-
-
+  
+  float f_realized = 1.0 / (dur / nPer);
   boolean sat = false;
-  if (DO_FAST)
-  {
-    Serial.print("DEBUG Fast mode xero is ");
-    Serial.println(zeroVal);
-    float bit1 = a1 * genAmplitude / 1.2 * 4090;
-    float bit3 = a3 * genAmplitude / 1.2 * 4090;
-    float bit5 = a5 * genAmplitude / 1.2 * 4090;
 
-    for (int i = 0; i < BUFFER_SIZE; i++) {
-      int v = zeroVal + (int)
-              (0.5 + bit1 * sin(((float)i) * nPer * 2 * PI / ((float)BUFFER_SIZE)) +
-               bit3 * sin(((float)i) * nPer * 6 * PI / ((float)BUFFER_SIZE)) +
-               bit5 * sin(((float)i) * nPer * 10 * PI / ((float)BUFFER_SIZE)));
-      if (v > 4095) {
-        v = 4095;
-        sat = true;
-      }
-      if (v < 0) {
-        v = 0;
-        sat = true;
-      }
-      sinetableL[i] = v;
+  float bitAmplitude = A_stimulus / 1.2 * 4090;
+  for (int i = 0; i < stimulus_length; i++) {
+    int v = DC_offset_stimulus + (int) (0.5 + bitAmplitude * sin(((float)i) * nPer * 2 * PI / ((float)stimulus_length)));
+    if (v > 4095) {
+      v = 4095;
+      sat = true;
     }
-    Serial.print("DEBUG multi dur:");
-    Serial.print(dur * 1000);
-    Serial.print(" ms");
-    Serial.print(" Per :");
-    Serial.print(nPer);
-    Serial.print(" Freq: ");
-    Serial.print(realFreq);
-    Serial.print(" Amp: ");
-    Serial.print(genAmplitude);
-    Serial.print( " (");
-    Serial.print(bit1);
-    Serial.print(",");
-    Serial.print(bit3);
-    Serial.print(",");
-    Serial.print(bit5);
-    Serial.print(")");
-    Serial.print(F(" zero "));
-    Serial.print(zeroVal);
-    if (sat)
-      Serial.println(" Saturated");
-    else
-      Serial.println(" ");
-
-  } else {
-    float bitAmplitude = genAmplitude / 1.2 * 4090;
-    for (int i = 0; i < BUFFER_SIZE; i++) {
-      int v = zeroVal + (int) (0.5 + bitAmplitude * sin(((float)i) * nPer * 2 * PI / ((float)BUFFER_SIZE)));
-      if (v > 4095) {
-        v = 4095;
-        sat = true;
-      }
-      if (v < 0) {
-        v = 0;
-        sat = true;
-      }
-      sinetableL[i] = v;
+    if (v < 0) {
+      v = 0;
+      sat = true;
     }
-    Serial.print("DEBUG single dur:");
-    Serial.print(dur * 1000);
-    Serial.print(" ms");
-    Serial.print(" Per :");
-    Serial.print(nPer);
-    Serial.print(" Freq: ");
-    Serial.print(realFreq);
-    Serial.print(" Amp: ");
-    Serial.print(genAmplitude);
-    Serial.print( " (");
-    Serial.print(bitAmplitude);
-    Serial.print(")");
-    Serial.print(F(" zero "));
-    Serial.print(zeroVal);
-    if (sat)
-      Serial.println(" Saturated");
-    else
-      Serial.println(" ");
+    stimulus_table[i] = v;
   }
+  
+  Serial.print("DEBUG single dur:");
+  Serial.print(dur * 1000);
+  Serial.print(" ms");
+  Serial.print(" Per :");
+  Serial.print(nPer);
+  Serial.print(" Realized stimulus frequency: ");
+  Serial.print(f_realized);
+  Serial.print(" Stimulus amplitude: ");
+  Serial.print(A_stimulus);
+  Serial.print( " (");
+  Serial.print(bitAmplitude);
+  Serial.print(")");
+  Serial.print(" DC offset stimulus:");
+  Serial.print(DC_offset_stimulus);
+  if (sat)
+    Serial.println(" Saturated");
+  else
+    Serial.println(" ");
 
   Serial.flush();
-  return realFreq;
+  return f_realized;
 }
 
 
 
 
-void baseIrq() {
-  //this should run always
+void toggleOnBoardLed() {
   digitalWriteFast(LED_BUILTIN, !digitalRead(LED_BUILTIN));
 }
 
@@ -471,20 +413,19 @@ void baseIrq() {
 void adc0_isr() {
   //st=micros();
   pOut++;
-  pOut = pOut % BUFFER_SIZE;
+  pOut = pOut % stimulus_length;
   
   
-  analogWrite(DAC_OUT, sinetableL[pOut]);
-  // *(volatile int16_t *)&(DAC0_DAT0L) = sinetableL[pOut];
+  analogWrite(pin_writeDAC, stimulus_table[pOut]);
   
-  if (p1 >= NM ) {
+  if (p1 >= stimulus_length ) {
     adc->adc0->readSingle();
     adc->adc0->stopPDB();
     dacDisable();
     // Serial.print("ERROR Trying to read beyond end of buffer. ");
     Serial.print("DONE: 0");
-    Serial.print(", NM: ");
-    Serial.print(NM);
+    Serial.print(", stimulus_length: ");
+    Serial.print(stimulus_length);
     Serial.print(", p1: ");
     Serial.print(p1);
     Serial.flush();
@@ -495,15 +436,13 @@ void adc0_isr() {
     skipped ++;
     adc->adc0->readSingle();
     return;
-
   }
+
   V1[p1++] = adc->adc0->readSingle(); // read a new value, will return ADC_ERROR_VALUE if the comparison is false.
-  //en=micros();
-  //dt=en-st;
 }
 
 void adc1_isr() {
-  if (p2 >= NM ) {
+  if (p2 >= stimulus_length ) {
     adc->adc1->readSingle();
     adc->adc1->stopPDB();
     dacDisable();
@@ -511,11 +450,13 @@ void adc1_isr() {
     Serial.flush();
     return;
   }
+  
   if (skipped < SKIP) {
     adc->adc1->readSingle();
     return;
 
   }
+  
   V2[p2++] = (uint16_t)adc->adc1->readSingle();
 
 }
@@ -528,6 +469,7 @@ void setAdc0ForAcq() {
   adc->adc0->disableCompare();
   //adc->adc0->enablePGA(pga1Gain);  // gain can be 1,2,4,8,16,32,64
 }
+
 void setAdc1ForAcq() {
   adc->adc1->setAveraging(1); // set number of averages
   adc->adc1->setResolution(16); // set bits of resolution
@@ -537,7 +479,6 @@ void setAdc1ForAcq() {
   //adc->adc1->enablePGA(pga1Gain);  // gain can be 1,2,4,8,16,32,64
 }
 
-
 void sendData() {
 
   //this is an sampling start request
@@ -546,44 +487,44 @@ void sendData() {
 
   if (tmp == 0){
     Serial.print("DEBUG size:");
-    Serial.print(BUFFER_SIZE);
-    Serial.print(" Gen freq:");
-    Serial.print(realFreq);
+    Serial.print(stimulus_length);
+    Serial.print(" Realized stimulus frequency:");
+    Serial.print(f_realized);
     Serial.print(" Sampling freq:");
-    Serial.println(samplingFreq);
+    Serial.println(f_sampling);
   
     Serial.print("#DATA,");
     //send the number of data
-    Serial.print(BUFFER_SIZE);
+    Serial.print(stimulus_length);
     Serial.print(",");
     //send the frequency
-    Serial.print(realFreq);
+    Serial.print(f_realized);
     Serial.print(",");
     //send the acquisition freq
-    Serial.println(samplingFreq);
+    Serial.println(f_sampling);
     //Serial.print(",");
     Serial.flush();
     } else if (tmp == 1){
       //send all data
-      for (int i = 0; i < BUFFER_SIZE; i++) {
+      for (int i = 0; i < stimulus_length; i++) {
         Serial.print(V1[i]);
         Serial.print(",");
       }
-    } else if (tmp == 2){
+  } else if (tmp == 2){
       //send all data
-      for (int i = 0; i < BUFFER_SIZE; i++) {
+      for (int i = 0; i < stimulus_length; i++) {
         Serial.print(V2[i]);
         Serial.print(",");
         }
-    } else if (tmp == 3){
+  } else if (tmp == 3){
       //send all data
-      for (int i = 0; i < BUFFER_SIZE; i++) {
-        Serial.print(sinetableL[i]);
+      for (int i = 0; i < stimulus_length; i++) {
+        Serial.print(stimulus_table[i]);
         Serial.print(",");
         }
-    }else {
+  } else {
       Serial.print("Future extension aka nNot Implemented");
-    }
+  }
     
     
   //tag the end of sending
@@ -596,11 +537,12 @@ void setup() {
 
   Serial.begin(115000);
   delay(400);
+  
   pinMode(LED_BUILTIN, OUTPUT);
-
-  pinMode(readPinD, INPUT);
-  pinMode(readPinM, INPUT);
-  pinMode(readPin2, INPUT);
+  pinMode(pin_readD, INPUT);
+  pinMode(pin_readM, INPUT);
+  pinMode(pin_read2, INPUT);
+  
   Serial.println("DEBUG Begin setup");
 
 
@@ -612,7 +554,7 @@ void setup() {
   //setAdc1ForAcq();
   adc->resetError();
   analogWriteResolution(12);   //values between 0 and 4095
-  analogWrite(DAC_OUT, 1000);
+  analogWrite(pin_writeDAC, 1000);
   dacDisable();
   /*
     Serial.print("C0:");
@@ -624,9 +566,9 @@ void setup() {
   */
   adc->resetError();
 
-  //start the continuous timer
+  //Start the timer for the On Board LED
   baseTimer.priority(180);
-  baseTimer.begin(baseIrq, 1000000);
+  baseTimer.begin(toggleOnBoardLed, 1000000);
 
   Serial.println("DEBUG End setup");
   Serial.flush();

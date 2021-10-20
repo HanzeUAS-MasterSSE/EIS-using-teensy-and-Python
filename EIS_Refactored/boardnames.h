@@ -23,4 +23,18 @@
   #define BOARD "Unknown board"
 #endif
 
+
+
+void printBoardParameters(){
+  //identify the used teensy
+      Serial.print ("Board: ");
+      Serial.print(BOARD);
+      Serial.print (", BUS frequency: ");
+      Serial.print (F_BUS / 1000000) ;
+      Serial.print (", CPU frequency: ");
+      Serial.println(F_CPU / 1000000);
+      Serial.flush();
+}
+
+
 #endif
