@@ -40,10 +40,13 @@ float f_stimulus = 50;   // stimulus frequency
 float A_stimulus = 0.2;     // stimulus amplitude
 int DC_offset_stimulus = 2000;               // stimulus DC offset
 
+float digital_amplitude;  // these are calculated
+float stimulus_duration;  // these are calculated
+
 boolean sinetable_generated = 0;
 float f_sampling = 48000;
 
-const int SKIP = 1000;
+const int SKIP = 0; 
 int skipped = 0;
 int averaging_number = 1;
 
@@ -300,7 +303,7 @@ void measureOCP() {
 }*/
 
 void startMeasurement(float f_stimulus, float f_sampling) {
-
+  String metadata_json;
   //clear inputs just in case
   for (int i = 0; i < stimulus_length; i++) {
     V1[i] = 0;
@@ -319,12 +322,18 @@ void startMeasurement(float f_stimulus, float f_sampling) {
   pOut = 0;
 
   sinetable_generated = loadSineTable(f_stimulus, f_sampling);
-  Serial.print("DEBUG Start pdb with frequency ");
-  Serial.print(f_sampling);
-  Serial.print(" Hz.");
-  Serial.print(" Sinetable generated: ");
-  Serial.println(sinetable_generated);
-  Serial.flush();
+  
+  if (sinetable_generated){
+        metadata_json = jsonStimulusParameters();
+        Serial.print(metadata_json);
+        Serial.flush();
+    } else {
+       Serial.print("SineTable generated with errors. Check amplitude and  sampling fequency!");
+       metadata_json = jsonStimulusParameters();
+       Serial.print(metadata_json);
+       Serial.flush();
+    };
+ 
 
   if (f_stimulus <= 0.01*f_sampling) {
     averaging_number = 4;
@@ -352,37 +361,37 @@ boolean loadSineTable(float f_stimulus, float f_sampling) {
   boolean DAC_saturated = false;
   boolean f_sampling_sufficient = true;
 
-  float duration = stimulus_length * (1.0 / f_sampling);
+  stimulus_duration = stimulus_length * (1.0 / f_sampling);
 
   if (f_sampling < 3 * f_stimulus ) {
-    Serial.print("Error: f_sampling is below the minimal required sampling frequency: 1.5*2*f_stimulus");
+    // Serial.print("Error: f_sampling is below the minimal required sampling frequency: 1.5*2*f_stimulus");
     f_sampling_sufficient = false;
   };
 
   int A_max = min(DC_offset_stimulus, 4095-DC_offset_stimulus) - 1;
 
-  float amplitude = A_stimulus * A_max;
+  digital_amplitude = A_stimulus * A_max;
   float omega_dt =  f_stimulus * 2 * PI / ((float)stimulus_length);  // phase change over one sample
 
-  if (amplitude > A_max) {
+  if (digital_amplitude > A_max) {
       DAC_saturated = true;
   };
 
   int v_dac;
   for (int i = 0; i < stimulus_length; i++) {
-    v_dac = DC_offset_stimulus + (int) (0.5 + amplitude * sin(((float)i) *omega_dt ));
+    v_dac = DC_offset_stimulus + (int) (0.5 + digital_amplitude * sin(((float)i) *omega_dt ));
     if (v_dac > 4095)  { v_dac = 4095; } else if (v_dac < 0)  {v_dac = 0;};  // Prevent overflow
     stimulus_table[i] = v_dac;
   }
 
-  Serial.print("stimulus duration:");
-  Serial.print(duration * 1000);
+  /* Serial.print("stimulus stimulus_duration:");
+  Serial.print(stimulus_duration * 1000);
   Serial.println(" ms");
 
   Serial.print("stimulus amplitude: ");
   Serial.print(A_stimulus);
   Serial.print( " (");
-  Serial.print(amplitude);
+  Serial.print(digital_amplitude);
   Serial.println(")");
 
   Serial.print("DC offset stimulus:");
@@ -394,7 +403,7 @@ boolean loadSineTable(float f_stimulus, float f_sampling) {
   Serial.print("Sampling rate consistent with sampling theorem: ");
   Serial.println(f_sampling_sufficient);
 
-  Serial.flush();
+  Serial.flush();*/
   return f_sampling_sufficient and ~DAC_saturated;
 }
 
@@ -408,7 +417,6 @@ void adc0_isr() {
   //st=micros();
   pOut++;
   pOut = pOut % stimulus_length;
-
 
   analogWrite(pin_writeDAC, stimulus_table[pOut]);
 
@@ -426,6 +434,7 @@ void adc0_isr() {
     return;
   }
 
+  // Skip the first SKIP samples
   if (skipped < SKIP) {
     skipped ++;
     adc->adc0->readSingle();
@@ -448,7 +457,6 @@ void adc1_isr() {
   if (skipped < SKIP) {
     adc->adc1->readSingle();
     return;
-
   }
 
   V2[p2++] = (uint16_t)adc->adc1->readSingle();
@@ -482,8 +490,8 @@ String jsonStimulusParameters(){
           jsonStimPars += stimulus_length;
       jsonStimPars += ",";
 
-      jsonStimPars += "\"amplitude\":";
-          jsonStimPars += amplitude;
+      jsonStimPars += "\"digital_amplitude\":";
+          jsonStimPars += digital_amplitude;
       jsonStimPars += ",";
 
       jsonStimPars += "\"f_stimulus\":";
@@ -492,6 +500,10 @@ String jsonStimulusParameters(){
 
       jsonStimPars += "\"f_sampling\":";
           jsonStimPars += f_sampling;
+      jsonStimPars += ",";
+
+      jsonStimPars += "\"stimulus_duration\":";
+          jsonStimPars += stimulus_duration * 1000;
       jsonStimPars += ",";
 
       jsonStimPars += "\"ADC_averaging_number\":";
