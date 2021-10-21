@@ -4,7 +4,7 @@
 //   IEEE TRANSACTIONS ON INSTRUMENTATION AND MEASUREMENT, VOL. 70, 2021
 //
 // It was refactored and rewritten for use with the Python serial module by:
-//      Ronald van Elburg (www.vanelburg.eu)
+//      Ronald A.J.  van Elburg (www.vanelburg.eu)
 
 #include <ADC.h>
 #include <ADC_util.h>
@@ -36,12 +36,12 @@ volatile uint16_t pOut = 0;   //  position in output array
 
 
 // Define stimulus parameters
-float f_requested = 50000;   // stimulus frequency
+float f_stimulus = 50;   // stimulus frequency
 float A_stimulus = 0.2;     // stimulus amplitude
 int DC_offset_stimulus = 2000;               // stimulus DC offset
 
 boolean sinetable_generated = 0;
-float f_sampling = 0;
+float f_sampling = 48000;
 
 const int SKIP = 1000;
 int skipped = 0;
@@ -148,8 +148,8 @@ void setStimulusFrequency(){
     //this is an output frequency request
     commandBuffer[0] = ' ';
     float tmp = atof(commandBuffer);
-    f_requested = tmp;
-    sprintf(buf, "Stimulus frequency set to: %f", f_requested);
+    f_stimulus = tmp;
+    sprintf(buf, "Stimulus frequency set to: %f", f_stimulus);
     Serial.println(buf);
 }
 
@@ -214,7 +214,7 @@ void serialEvent() {
     }  else if (commandBuffer[0] == 'G') {
       setSamplingFrequency();
     }  else if (commandBuffer[0] == 'M') {
-      startMeasurement(f_requested, f_sampling);
+      startMeasurement(f_stimulus, f_sampling);
     } else if (commandBuffer[0] == 'Z') {
       Serial.println("DEBUG: measureOCP disabled ");
       // measureOCP();
@@ -233,7 +233,7 @@ void serialEvent() {
   } else {
     //not a \n
     //if possible queue the chars
-    if (bufferPos < stimulus_length - 1) {
+    if (bufferPos < SERIAL_BUFFER_SIZE-1) {
       commandBuffer[bufferPos++] = inChar;
     } else {
       Serial.print("DEBUG: Message too long  ");
@@ -299,7 +299,7 @@ void measureOCP() {
   Serial.println(buf);
 }*/
 
-void startMeasurement(float f_requested, float f_sampling) {
+void startMeasurement(float f_stimulus, float f_sampling) {
 
   //clear inputs just in case
   for (int i = 0; i < stimulus_length; i++) {
@@ -318,15 +318,15 @@ void startMeasurement(float f_requested, float f_sampling) {
   p2 = 0;
   pOut = 0;
 
-  sinetable_generated = loadSineTable(f_requested, f_sampling);
+  sinetable_generated = loadSineTable(f_stimulus, f_sampling);
   Serial.print("DEBUG Start pdb with frequency ");
   Serial.print(f_sampling);
   Serial.print(" Hz.");
   Serial.print(" Sinetable generated: ");
   Serial.println(sinetable_generated);
   Serial.flush();
-  
-  if (f_requested <= 0.01*f_sampling) {
+
+  if (f_stimulus <= 0.01*f_sampling) {
     averaging_number = 4;
   } else {
     averaging_number = 1;
@@ -351,7 +351,7 @@ void startMeasurement(float f_requested, float f_sampling) {
 boolean loadSineTable(float f_stimulus, float f_sampling) {
   boolean DAC_saturated = false;
   boolean f_sampling_sufficient = true;
-  
+
   float duration = stimulus_length * (1.0 / f_sampling);
 
   if (f_sampling < 3 * f_stimulus ) {
@@ -360,7 +360,7 @@ boolean loadSineTable(float f_stimulus, float f_sampling) {
   };
 
   int A_max = min(DC_offset_stimulus, 4095-DC_offset_stimulus) - 1;
-  
+
   float amplitude = A_stimulus * A_max;
   float omega_dt =  f_stimulus * 2 * PI / ((float)stimulus_length);  // phase change over one sample
 
@@ -378,19 +378,19 @@ boolean loadSineTable(float f_stimulus, float f_sampling) {
   Serial.print("stimulus duration:");
   Serial.print(duration * 1000);
   Serial.println(" ms");
-  
+
   Serial.print("stimulus amplitude: ");
   Serial.print(A_stimulus);
   Serial.print( " (");
   Serial.print(amplitude);
   Serial.println(")");
-   
+
   Serial.print("DC offset stimulus:");
   Serial.println(DC_offset_stimulus);
-  
+
   Serial.print("DAC Saturated: ");
   Serial.println(DAC_saturated);
-  
+
   Serial.print("Sampling rate consistent with sampling theorem: ");
   Serial.println(f_sampling_sufficient);
 
@@ -473,20 +473,110 @@ void setAdc1ForAcq() {
   //adc->adc1->enablePGA(pga1Gain);  // gain can be 1,2,4,8,16,32,64
 }
 
+
+String jsonStimulusParameters(){
+    String jsonStimPars("");
+    jsonStimPars += "{";
+
+      jsonStimPars += "\"length\":";
+          jsonStimPars += stimulus_length;
+      jsonStimPars += ",";
+
+      jsonStimPars += "\"amplitude\":";
+          jsonStimPars += amplitude;
+      jsonStimPars += ",";
+
+      jsonStimPars += "\"f_stimulus\":";
+          jsonStimPars += f_stimulus;
+      jsonStimPars += ",";
+
+      jsonStimPars += "\"f_sampling\":";
+          jsonStimPars += f_sampling;
+      jsonStimPars += ",";
+
+      jsonStimPars += "\"ADC_averaging_number\":";
+          jsonStimPars += averaging_number;
+
+    jsonStimPars += "}";
+
+    return jsonStimPars;
+}
+
 void sendData() {
+    char type[3];
+    int type_index;
+
+    int start_position;
+    int end_position;
+    const int slice_length = 100;
+
+    boolean use_comma = false;
+
+    // Extract type index
+    type[0]=commandBuffer[1];
+    type[1]=commandBuffer[2];
+    type[2]=0;
+    type_index = atoi(type);
+
+    if (type_index == 0){
+        String metadata_json = jsonStimulusParameters();
+        Serial.print(metadata_json);
+    } else {
+        //this is an sampling start request
+        for  (int i = 0; i < 4; i++){ commandBuffer[i]=' '; }  // Remove already processed chars.
+
+        start_position = atoi(commandBuffer);
+        end_position = min( start_position + slice_length,  stimulus_length);
+
+        Serial.print("{\"start\":");
+        Serial.print(start_position);
+        Serial.print(", \"end\":");
+        Serial.print(end_position);
+        Serial.print(", \"data\": [");
+
+        use_comma = false;
+
+        if (type_index == 1){
+            for (int i = start_position; i < end_position; i++) {
+                if (use_comma) {Serial.print(",");} else {use_comma=true;};
+                Serial.print(V1[i]);
+            }
+        } else if (type_index == 2){
+            for (int i = start_position; i < end_position; i++) {
+              if (use_comma) {Serial.print(",");} else {use_comma=true;};
+              Serial.print(V2[i]);
+              }
+        } else if (type_index == 3){
+            for (int i = start_position; i < end_position; i++) {
+              if (use_comma) {Serial.print(",");} else {use_comma=true;};
+              Serial.print(stimulus_table[i]);
+              }
+        } else {
+            Serial.print("\"unrecognized type\"");
+        }
+
+        Serial.println("]}");
+    }
+
+    Serial.flush();
+}
+
+
+
+
+void sendData_bk() {
 
   //this is an sampling start request
   commandBuffer[0] = ' ';
   int tmp = atoi(commandBuffer);
-  size_t bytes_written = 1;
 
   if (tmp == 0){
     Serial.print("Stimulus length:");
     Serial.print(stimulus_length);
-    
+
     Serial.print(" Stimulus frequency:");
-    Serial.print(f_requested);
-    
+    Serial.print(f_stimulus);
+
     Serial.print(" Sampling frequency:");
     Serial.println(f_sampling);
 
@@ -498,7 +588,7 @@ void sendData() {
     Serial.print(stimulus_length);
     Serial.print(",");
     //send the frequency
-    Serial.print(f_requested);
+    Serial.print(f_stimulus);
     Serial.print(",");
     //send the acquisition freq
     Serial.println(f_sampling);
@@ -506,21 +596,21 @@ void sendData() {
     Serial.flush();
     } else if (tmp == 1){
       //send all data
-      for (int i = 0; i < stimulus_length and bytes_written > 0; i++) {
-        bytes_written = Serial.print(V1[i]);
-        bytes_written += Serial.print(",");
+      for (int i = 0; i < stimulus_length; i++) {
+        Serial.print(V1[i]);
+        Serial.print(",");
       }
   } else if (tmp == 2){
       //send all data
-      for (int i = 0; i < stimulus_length and bytes_written > 0; i++) {
-        bytes_written = Serial.print(V2[i]);
-        bytes_written += Serial.print(",");
+      for (int i = 0; i < stimulus_length; i++) {
+        Serial.print(V2[i]);
+        Serial.print(",");
         }
   } else if (tmp == 3){
       //send all data
-      for (int i = 0; i < stimulus_length and bytes_written > 0; i++) {
-        bytes_written = Serial.print(stimulus_table[i]);
-        bytes_written += Serial.print(",");
+      for (int i = 0; i < stimulus_length; i++) {
+        Serial.print(stimulus_table[i]);
+        Serial.print(",");
         }
   } else {
       Serial.print("Future extension aka Not Implemented");
