@@ -371,7 +371,7 @@ boolean loadSineTable(float f_stimulus, float f_sampling) {
   int A_max = min(DC_offset_stimulus, 4095-DC_offset_stimulus) - 1;
 
   digital_amplitude = A_stimulus * A_max;
-  float omega_dt =  f_stimulus * 2 * PI / ((float)stimulus_length);  // phase change over one sample
+  float omega_dt =  f_stimulus * 2 * PI / ((float) f_sampling);  // phase change over one sample
 
   if (digital_amplitude > A_max) {
       DAC_saturated = true;
