@@ -64,26 +64,25 @@ int bufferPos = 0; //position in the buffer
 char welcome[] = {"LowCost EIS"};
 
 void clearBuffer() {
-  for (int i = 0; i < SERIAL_BUFFER_SIZE + 1; i++)
-    commandBuffer[i] = (char)0;
-  bufferPos = 0;
+    for (int i = 0; i < SERIAL_BUFFER_SIZE + 1; i++)
+        commandBuffer[i] = (char)0;
+    bufferPos = 0;
 }
-
 
 void setTransientDACValue(){
       commandBuffer[0] = ' ';
       float tmp = atof(commandBuffer);
 
       if (((tmp >= 0) & (tmp <= 4095))) {
-        dacEnable();
-        analogWrite(pin_writeDAC, tmp);
-        Serial.print("Transient DAC value requested: ");
-        //Serial.println(tmp);
-        delay(1000);
-        analogWrite(pin_writeDAC, 0);
-        dacDisable();
+          dacEnable();
+          analogWrite(pin_writeDAC, tmp);
+          Serial.print("Transient DAC value requested: ");
+          //Serial.println(tmp);
+          delay(1000);
+          analogWrite(pin_writeDAC, 0);
+          dacDisable();
       } else {
-        Serial.println("Transient DAC value requested is out of range");
+          Serial.println("Transient DAC value requested is out of range");
       }
 
       Serial.flush();
@@ -94,48 +93,48 @@ void testTransientDACValue(){
       commandBuffer[0] = ' ';
       float tmp = atof(commandBuffer);
       if (((tmp >= 0) & (tmp <= 4095))) {
-        dacEnable();
-        analogWrite(pin_writeDAC, tmp);
-        delay(100);
+          dacEnable();
+          analogWrite(pin_writeDAC, tmp);
+          delay(100);
 
-        adc->adc0->setAveraging(1); // set number of averages
-        adc->adc0->setResolution(16); // set bits of resolution
-        adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED); // change the conversion speed
-        adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED); // change the sampling speed
-        adc->adc0->disableCompare();
-        adc->adc1->setAveraging(1); // set number of averages
-        adc->adc1->setResolution(16); // set bits of resolution
-        adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED); // change the conversion speed
-        adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED); // change the sampling speed
-        adc->adc1->disableCompare();
+          adc->adc0->setAveraging(1); // set number of averages
+          adc->adc0->setResolution(16); // set bits of resolution
+          adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED); // change the conversion speed
+          adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED); // change the sampling speed
+          adc->adc0->disableCompare();
+          adc->adc1->setAveraging(1); // set number of averages
+          adc->adc1->setResolution(16); // set bits of resolution
+          adc->adc1->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED); // change the conversion speed
+          adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED); // change the sampling speed
+          adc->adc1->disableCompare();
 
-        delay(10);
-        
-        //make some reads
-        int x0d = 0;
-        unsigned int x1s = 0;
-        int noofmeasurments = 500;   
-        
-        for (int i = 0; i < noofmeasurments; i++) {
-          int x0dv = adc->adc0->analogReadDifferential(pin_readD, pin_readM);
-          unsigned int x1sv = adc->adc1->analogRead(pin_read2);
-          x0d += x0dv;
-          x1s += x1sv;
-        }
-        
-        x0d /= noofmeasurments;
-        x1s /= noofmeasurments;
+          delay(10);
+          
+          //make some reads
+          int x0d = 0;
+          unsigned int x1s = 0;
+          int noofmeasurments = 500;   
+          
+          for (int i = 0; i < noofmeasurments; i++) {
+            int x0dv = adc->adc0->analogReadDifferential(pin_readD, pin_readM);
+            unsigned int x1sv = adc->adc1->analogRead(pin_read2);
+            x0d += x0dv;
+            x1s += x1sv;
+          }
+          
+          x0d /= noofmeasurments;
+          x1s /= noofmeasurments;
 
-        Serial.print("DAC set to:");
-        Serial.println(tmp);
-        Serial.print("Channel 0 differential:");
-        Serial.println(x0d);
-        Serial.print("Channel 1 single:");
-        Serial.println(x1s);
-        Serial.flush();
+          Serial.print("DAC set to:");
+          Serial.println(tmp);
+          Serial.print("Channel 0 differential:");
+          Serial.println(x0d);
+          Serial.print("Channel 1 single:");
+          Serial.println(x1s);
+          Serial.flush();
       } else {
-        Serial.println("Out of range");
-        Serial.flush();
+          Serial.println("Out of range");
+          Serial.flush();
       }
 }
 
@@ -148,7 +147,7 @@ void setStimulusFrequency(){
     sprintf(buf, "Stimulus frequency set to: %f", f_stimulus);
     Serial.println(buf);
     
-     stimulus_parameters_valid = false;
+    stimulus_parameters_valid = false;
 }
 
 void setStimulusAmplitude(){
@@ -157,98 +156,99 @@ void setStimulusAmplitude(){
     commandBuffer[0] = ' ';
     float tmp = atof(commandBuffer);
     if (((tmp >= 0) & (tmp <= 1))) {
-      A_stimulus = tmp;
-      sprintf(buf, "Stimulus amplitude set to %f", A_stimulus);
-      Serial.println(buf);
+        A_stimulus = tmp;
+        sprintf(buf, "Stimulus amplitude set to %f", A_stimulus);
+        Serial.println(buf);
     } else {
-      sprintf(buf, "E05 Stimulus amplitude out of range, amplitude given: %f, maximum allowed: %f", tmp, 1.0);
-      Serial.println(buf);
+        sprintf(buf, "E05 Stimulus amplitude out of range, amplitude given: %f, maximum allowed: %f", tmp, 1.0);
+        Serial.println(buf);
     }
     
      stimulus_parameters_valid = false;
 }
 
 void setStimulusDCValue(){
-  char buf[100];
-  //this is a zero change request
-      commandBuffer[0] = ' ';
-      float tmp = atof(commandBuffer);
-      if (((tmp >= 0) & (tmp <= 4095))) {
+    char buf[100];
+    //this is a zero change request
+    commandBuffer[0] = ' ';
+    float tmp = atof(commandBuffer);
+    if (((tmp >= 0) & (tmp <= 4095))) {
         DC_offset_stimulus = (int)tmp;
         sprintf(buf, "Stimulus DCValue set to %d", DC_offset_stimulus);
         Serial.println(buf);
-      } else {
+    } else {
         sprintf(buf, "E05 Stimulus DCValue requested:  %f is out of range maximum value allowed: %f", tmp, 4095.0);
         Serial.println(buf);
-      } 
-      
-      stimulus_parameters_valid = false;
+    } 
+    
+    stimulus_parameters_valid = false;
 }
 
 void setSamplingFrequency(){
-  char buf[100];
-  //this is an sampling start request
-  commandBuffer[0] = ' ';
-  float tmp = atof(commandBuffer);
-  if ((tmp <= 575000) & (tmp >= 1)) {
-    f_sampling = tmp;
-    sprintf(buf, "Sampling frequency for measuremnt set to %f", tmp);
-    Serial.println(buf);
-  } else {
-    sprintf(buf, "E06 requested sampling frequency %f out of range, sampling frequency kept at %f ", tmp, f_sampling);
-    Serial.println(buf);
-  }
-  
-  stimulus_parameters_valid = false;
+    char buf[100];
+    //this is an sampling start request
+    commandBuffer[0] = ' ';
+    float tmp = atof(commandBuffer);
+    if ((tmp <= 575000) & (tmp >= 1)) {
+        f_sampling = tmp;
+        sprintf(buf, "Sampling frequency for measuremnt set to %f", tmp);
+        Serial.println(buf);
+    } else {
+        sprintf(buf, "E06 requested sampling frequency %f out of range, sampling frequency kept at %f ", tmp, f_sampling);
+        Serial.println(buf);
+    }
+    
+    stimulus_parameters_valid = false;
   
 }
 
 //interrupt functions
 void serialEvent() {
-  char inChar = Serial.read();
-  if (inChar == '\n') {
-    //the command is complete what should we do?
-    if (commandBuffer[0] == 'Q') {
-      testTransientDACValue();
-    } else if (commandBuffer[0] == 'F') {
-      setStimulusFrequency();
-    } else if (commandBuffer[0] == 'A') {
-      setStimulusAmplitude();
-    } else if (commandBuffer[0] == 'Y') {
-      setStimulusDCValue();
-    }  else if (commandBuffer[0] == 'G') {
-      setSamplingFrequency();
-    }  else if (commandBuffer[0] == 'M') {
-      startMeasurement(f_stimulus, f_sampling);
-    } else if (commandBuffer[0] == 'Z') {
-      Serial.println("DEBUG: measureOCP disabled ");
-      // measureOCP();
-    } else if (commandBuffer[0] == 'D' ) {
-      sendData();
-    } else if (commandBuffer[0] == 'B' ) {
-      printBoardParameters();
-    } else if (commandBuffer[0] == 'T' ) {
-      setTransientDACValue();
+    char inChar = Serial.read();
+    
+    if (inChar == '\n') {
+        //the command is complete what should we do?
+        if (commandBuffer[0] == 'Q') {
+            testTransientDACValue();
+        } else if (commandBuffer[0] == 'F') {
+            setStimulusFrequency();
+        } else if (commandBuffer[0] == 'A') {
+            setStimulusAmplitude();
+        } else if (commandBuffer[0] == 'Y') {
+            setStimulusDCValue();
+        }  else if (commandBuffer[0] == 'G') {
+            setSamplingFrequency();
+        }  else if (commandBuffer[0] == 'M') {
+            startMeasurement(f_stimulus, f_sampling);
+        } else if (commandBuffer[0] == 'Z') {
+            Serial.println("DEBUG: measureOCP disabled ");
+            // measureOCP();
+        } else if (commandBuffer[0] == 'D' ) {
+            sendData();
+        } else if (commandBuffer[0] == 'B' ) {
+            printBoardParameters();
+        } else if (commandBuffer[0] == 'T' ) {
+            setTransientDACValue();
+        } else {
+            //command not recognized
+            Serial.println("DEBUG: Command not recognized: ");
+            Serial.println(commandBuffer);
+        }
+        clearBuffer();
     } else {
-      //command not recognized
-      Serial.println("DEBUG: Command not recognized: ");
-      Serial.println(commandBuffer);
+        //not a \n
+        //if possible queue the chars
+        if (bufferPos < SERIAL_BUFFER_SIZE-1) {
+            commandBuffer[bufferPos++] = inChar;
+        } else {
+            Serial.print("DEBUG: Message too long  ");
+            Serial.println(commandBuffer);
+            //clear our buffer
+            clearBuffer();
+            //beware: other characters may arrive
+            //and can refill the buffer!
+        }
     }
-    clearBuffer();
-  } else {
-    //not a \n
-    //if possible queue the chars
-    if (bufferPos < SERIAL_BUFFER_SIZE-1) {
-      commandBuffer[bufferPos++] = inChar;
-    } else {
-      Serial.print("DEBUG: Message too long  ");
-      Serial.println(commandBuffer);
-      //clear our buffer
-      clearBuffer();
-      //beware: other characters may arrive
-      //and can refill the buffer!
-    }
-  }
 }
 
 void dacDisable() {
