@@ -39,6 +39,7 @@ volatile uint16_t pOut = 0;   //  position in output array
 float f_stimulus = 50;   // stimulus frequency
 float A_stimulus = 0.2;     // stimulus amplitude
 int DC_offset_stimulus = 2000;               // stimulus DC offset
+boolean stimulus_parameters_valid = false;
 
 float digital_amplitude;  // these are calculated
 float stimulus_duration;  // these are calculated
@@ -146,6 +147,8 @@ void setStimulusFrequency(){
     f_stimulus = tmp;
     sprintf(buf, "Stimulus frequency set to: %f", f_stimulus);
     Serial.println(buf);
+    
+     stimulus_parameters_valid = false;
 }
 
 void setStimulusAmplitude(){
@@ -161,6 +164,8 @@ void setStimulusAmplitude(){
       sprintf(buf, "E05 Stimulus amplitude out of range, amplitude given: %f, maximum allowed: %f", tmp, 1.0);
       Serial.println(buf);
     }
+    
+     stimulus_parameters_valid = false;
 }
 
 void setStimulusDCValue(){
@@ -175,7 +180,9 @@ void setStimulusDCValue(){
       } else {
         sprintf(buf, "E05 Stimulus DCValue requested:  %f is out of range maximum value allowed: %f", tmp, 4095.0);
         Serial.println(buf);
-      }
+      } 
+      
+      stimulus_parameters_valid = false;
 }
 
 void setSamplingFrequency(){
@@ -191,6 +198,9 @@ void setSamplingFrequency(){
     sprintf(buf, "E06 requested sampling frequency %f out of range, sampling frequency kept at %f ", tmp, f_sampling);
     Serial.println(buf);
   }
+  
+  stimulus_parameters_valid = false;
+  
 }
 
 //interrupt functions
@@ -376,18 +386,6 @@ boolean loadSineTable(float f_stimulus, float f_sampling) {
   }
 
   /* Serial.print("stimulus stimulus_duration:");
-  Serial.print(stimulus_duration * 1000);
-  Serial.println(" ms");
-
-  Serial.print("stimulus amplitude: ");
-  Serial.print(A_stimulus);
-  Serial.print( " (");
-  Serial.print(digital_amplitude);
-  Serial.println(")");
-
-  Serial.print("DC offset stimulus:");
-  Serial.println(DC_offset_stimulus);
-
   Serial.print("DAC Saturated: ");
   Serial.println(DAC_saturated);
 
@@ -395,6 +393,8 @@ boolean loadSineTable(float f_stimulus, float f_sampling) {
   Serial.println(f_sampling_sufficient);
 
   Serial.flush();*/
+  
+  stimulus_parameters_valid = false;
   return f_sampling_sufficient and ~DAC_saturated;
 }
 
@@ -416,6 +416,7 @@ void adc0_isr() {
     adc->adc0->readSingle();
     adc->adc0->stopPDB();
     dacDisable();
+    stimulus_parameters_valid = true;
     // Serial.print("ERROR Trying to read beyond end of buffer. ");
     Serial.print("DONE: 0");
     Serial.print(", stimulus_length: ");
@@ -466,7 +467,11 @@ void setAdc1ForAcq() {
 String jsonStimulusParameters(){
     String jsonStimPars("");
     jsonStimPars += "{";
-
+ 
+      jsonStimPars += "\"stimulus_parameters_valid\":";
+          jsonStimPars += stimulus_parameters_valid;
+      jsonStimPars += ",";
+      
       jsonStimPars += "\"length\":";
           jsonStimPars += stimulus_length;
       jsonStimPars += ",";
@@ -554,67 +559,6 @@ void sendData() {
     Serial.flush();
 }
 
-
-
-
-void sendData_bk() {
-
-  //this is an sampling start request
-  commandBuffer[0] = ' ';
-  int tmp = atoi(commandBuffer);
-
-  if (tmp == 0){
-    Serial.print("Stimulus length:");
-    Serial.print(stimulus_length);
-
-    Serial.print(" Stimulus frequency:");
-    Serial.print(f_stimulus);
-
-    Serial.print(" Sampling frequency:");
-    Serial.println(f_sampling);
-
-    Serial.print("ADC Averaging_number:");
-    Serial.println(averaging_number);
-
-    Serial.print("#DATA,");
-    //send the number of data
-    Serial.print(stimulus_length);
-    Serial.print(",");
-    //send the frequency
-    Serial.print(f_stimulus);
-    Serial.print(",");
-    //send the acquisition freq
-    Serial.println(f_sampling);
-    //Serial.print(",");
-    Serial.flush();
-    } else if (tmp == 1){
-      //send all data
-      for (int i = 0; i < stimulus_length; i++) {
-        Serial.print(V1[i]);
-        Serial.print(",");
-      }
-  } else if (tmp == 2){
-      //send all data
-      for (int i = 0; i < stimulus_length; i++) {
-        Serial.print(V2[i]);
-        Serial.print(",");
-        }
-  } else if (tmp == 3){
-      //send all data
-      for (int i = 0; i < stimulus_length; i++) {
-        Serial.print(stimulus_table[i]);
-        Serial.print(",");
-        }
-  } else {
-      Serial.print("Future extension aka Not Implemented");
-  }
-
-  //tag the end of sending
-  Serial.print("#END");
-  Serial.flush();
-}
-
-
 void setup() {
 
   Serial.begin(115000);
@@ -637,6 +581,7 @@ void setup() {
   // delay(1000);
   // analogWrite(pin_writeDAC, 4095);     // Test led in external circuit ....
   // delay(1000);
+  
   analogWrite(pin_writeDAC, 0);
   adc->resetError();
   dacDisable();
