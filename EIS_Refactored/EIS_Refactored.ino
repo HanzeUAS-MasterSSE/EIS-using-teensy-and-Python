@@ -1,4 +1,4 @@
-;// The code in this sketch is based on code provided by the authors of the paper:
+// The code in this sketch is based on code provided by the authors of the paper:
 //   'Electrochemical Impedance Spectroscopy System Based on a Teensy Board',
 //   Leila Es Sebar, Leonardo Iannucci, Emma Angelini, Sabrina Grassini, and Marco Parvis,
 //   IEEE TRANSACTIONS ON INSTRUMENTATION AND MEASUREMENT, VOL. 70, 2021
