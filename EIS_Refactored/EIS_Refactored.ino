@@ -46,8 +46,6 @@ float stimulus_duration;  // these are calculated
 boolean sinetable_generated = 0;
 float f_sampling = 48000;
 
-const int SKIP = 0; 
-int skipped = 0;
 int averaging_number = 1;
 
 // Allocate memory for storing the measured response
@@ -96,9 +94,7 @@ void testTransientDACValue(){
       float tmp = atof(commandBuffer);
       if (((tmp >= 0) & (tmp <= 4095))) {
         dacEnable();
-        // analogWrite(pin_writeDAC, DC_offset_stimulus);
         analogWrite(pin_writeDAC, tmp);
-        //*(volatile int16_t *)&(DAC0_DAT0L) = tmp;
         delay(100);
 
         adc->adc0->setAveraging(1); // set number of averages
@@ -112,29 +108,25 @@ void testTransientDACValue(){
         adc->adc1->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED); // change the sampling speed
         adc->adc1->disableCompare();
 
-        for (int i = 0; i < 10; i++) {
-          adc->adc0->analogReadDifferential(pin_readD, pin_readM);
-          adc->adc1->analogRead(pin_read2);
-        }
+        delay(10);
+        
         //make some reads
         int x0d = 0;
         unsigned int x1s = 0;
-        int NM_ = 500;   //RvE add underscore to variable name, potential conflict with global NM
-        for (int i = 0; i < NM_; i++) {
+        int noofmeasurments = 500;   
+        
+        for (int i = 0; i < noofmeasurments; i++) {
           int x0dv = adc->adc0->analogReadDifferential(pin_readD, pin_readM);
           unsigned int x1sv = adc->adc1->analogRead(pin_read2);
-
           x0d += x0dv;
           x1s += x1sv;
         }
-        x0d /= NM_;
-
-        x1s /= NM_;
-
+        
+        x0d /= noofmeasurments;
+        x1s /= noofmeasurments;
 
         Serial.print("DAC set to:");
         Serial.println(tmp);
-
         Serial.print("Channel 0 differential:");
         Serial.println(x0d);
         Serial.print("Channel 1 single:");
@@ -316,7 +308,6 @@ void startMeasurement(float f_stimulus, float f_sampling) {
   setAdc0ForAcq();
   setAdc1ForAcq();
 
-  skipped = 0;
   p1 = 0;
   p2 = 0;
   pOut = 0;
@@ -421,6 +412,7 @@ void adc0_isr() {
   analogWrite(pin_writeDAC, stimulus_table[pOut]);
 
   if (p1 >= stimulus_length ) {
+    adc->adc0->disableInterrupts();
     adc->adc0->readSingle();
     adc->adc0->stopPDB();
     dacDisable();
@@ -434,28 +426,17 @@ void adc0_isr() {
     return;
   }
 
-  // Skip the first SKIP samples
-  if (skipped < SKIP) {
-    skipped ++;
-    adc->adc0->readSingle();
-    return;
-  }
-
   V1[p1++] = adc->adc0->readSingle(); // read a new value, will return ADC_ERROR_VALUE if the comparison is false.
 }
 
 void adc1_isr() {
   if (p2 >= stimulus_length ) {
+    adc->adc1->disableInterrupts();  
     adc->adc1->readSingle();
     adc->adc1->stopPDB();
     dacDisable();
     Serial.println("DONE: 1");
     Serial.flush();
-    return;
-  }
-
-  if (skipped < SKIP) {
-    adc->adc1->readSingle();
     return;
   }
 
