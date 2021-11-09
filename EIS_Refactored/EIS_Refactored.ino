@@ -229,6 +229,11 @@ void serialEvent() {
             printBoardParameters();
         } else if (commandBuffer[0] == 'T' ) {
             setTransientDACValue();
+        }  else if (commandBuffer[0] == 'R' ) {
+            Serial.print("Max value adc0:");
+            Serial.println(adc->adc0->getMaxValue());
+            Serial.print("Max value adc1:");
+            Serial.println(adc->adc1->getMaxValue());
         } else {
             //command not recognized
             Serial.println("DEBUG: Command not recognized: ");
