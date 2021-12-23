@@ -4,53 +4,6 @@ from time import sleep
 import sys
 import json
 
-
-def estimate_impedance(Rs, f_stim, f_samp, V1, V2, DAC):
-    ''' Estimate the frequency response at the stimulus frequency.
-        
-        Parameters:
-            Rs: shunt resistance
-            f_stim: stimulus frequency
-            f_samp: sampling frequency
-            V1: measured V1 data
-            V2: measured V2 data
-            DAC: signal provided to DAC
-            
-        Output:
-            Z: impedance at frequency f_stim
-            V1_1, V1_2, V1_0: fit parameters for equation 6 from referenced paper
-            V2_1, V2_2, V2_0: fit parameters for equation 7 from referenced paper
-        
-        'Electrochemical Impedance Spectroscopy System Based on a Teensy Board',
-        Leila Es Sebar, Leonardo Iannucci, Emma Angelini, Sabrina Grassini, and Marco Parvis,
-        IEEE TRANSACTIONS ON INSTRUMENTATION AND MEASUREMENT, VOL. 70, 2021
-
-        Here we implement equations 6, 7 and 8 of this paper.
-
-        Still needs a resistor and stimulus amplitude correction.
-
-    '''
-    
-    
-    if not len(V1) == len(V2) or not len(V1) == len(DAC):
-        
-        raise ValueError(f'Incompatible input lengths: len V1: {len(V1)}, len V2: {len(V2)}, len Dac: {len(DAC)}')
-        
-    tstamps = np.arange(0, len(DAC), 1)/f_samp
-    
-    sine = np.sin(2*np.pi*f_stim*tstamps)
-    cosine = np.cos(2*np.pi*f_stim*tstamps)
-    
-    A = np.vstack([cosine, sine, np.ones(len(DAC))]).T
-    V1_1, V1_2, V1_0 = np.linalg.lstsq(A, V1, rcond=None)[0]  # Fit according equation 6
-    V2_1, V2_2, V2_0 = np.linalg.lstsq(A, V2, rcond=None)[0]  # Fit according equation 7
-    
-    Z = (V2_2 + 1j* V2_1)/(V1_2 + 1j* V1_1)*Rs/2 # Apply equation 8, factor is difference between differential and direct on teensy
-    
-    return Z, V1_1, V1_2, V1_0, V2_1, V2_2, V2_0 
-
-
-
 class EIS():
     
     adc_np_type_map = {1:np.int16,2:np.uint16,3:np.uint16}
@@ -202,9 +155,18 @@ class EIS():
                         f_sampling = 10000,    
                         print_response = False):
                             
-        ''' Here rshould be a help string
+        ''' Method to set the stimulus parameters used in a single measurement.
         
-        '''
+          Parameters:
+                f_stimulus:  frequency in Hz of the stimulus used
+                DC_offset = 2048: 
+                    output range of teensy is positive, so we need to offset a sinusoid by a 
+                    fixed value to keep it in range.
+                A_stimulus = 0.6: 
+                    amplitude specified as part of the maximum allowed offset
+                f_sampling = 10000: 
+                    sampling frequency in samples per second  
+                print_response = False: if True responses retrieved from teensy are printed'''
         
          # "A" Change the output amplitude used for the measurement
         self.serial.write(f"A{A_stimulus}\n".encode('utf8'))
@@ -243,11 +205,30 @@ class EIS():
                         A_stimulus = 0.6,
                         f_sampling = 10000,
                         Rs= 1000,
-                        process_measurement=estimate_impedance ):
-        ''' Here rshould be a help string
+                        process_measurement=None ):
+        ''' This function can be called to measure a complete impedance spectrum.
         
-        '''
+            Parameters:
+                        f_range: 
+                            list or numpy array with frequencies at which to probeb the system
+                        DC_offset = 2048: 
+                            output range of teensy is positive, so we need to offset a sinusoid by a 
+                            fixed value to keep it in range.
+                        A_stimulus = 0.6: 
+                            amplitude specified as part of the maximum allowed offset
+                        f_sampling = 10000: 
+                            sampling frequency in samples per second
+                        Rs= 1000: 
+                            value of the shunt resistor, see wiring folder for proposed circuits
+                        process_measurement=estimate_impedance: 
+                            function to calculate impedance based on the frequency response 
+            
+            Output:
+                spectrum: a list containing for each frequency in f_range the 
+                    output of estimate_impedance.'''
         
+        if process_measurement is None:
+            process_measurement  = self.estimate_impedance
        
         spectrum = [None]*len(f_range)
         
@@ -293,3 +274,48 @@ class EIS():
         
         print(f"\n--------------------------------------------")
         return spectrum
+
+    @staticmethod
+    def estimate_impedance(Rs, f_stim, f_samp, V1, V2, DAC):
+        ''' Estimate the frequency response at the stimulus frequency.
+            
+            Parameters:
+                Rs: shunt resistance
+                f_stim: stimulus frequency
+                f_samp: sampling frequency
+                V1: measured V1 data
+                V2: measured V2 data
+                DAC: signal provided to DAC
+                
+            Output:
+                Z: impedance at frequency f_stim
+                V1_1, V1_2, V1_0: fit parameters for equation 6 from referenced paper
+                V2_1, V2_2, V2_0: fit parameters for equation 7 from referenced paper
+            
+            'Electrochemical Impedance Spectroscopy System Based on a Teensy Board',
+            Leila Es Sebar, Leonardo Iannucci, Emma Angelini, Sabrina Grassini, and Marco Parvis,
+            IEEE TRANSACTIONS ON INSTRUMENTATION AND MEASUREMENT, VOL. 70, 2021
+
+            Here we implement equations 6, 7 and 8 of this paper.
+
+            Still needs a resistor and stimulus amplitude correction.'''
+        
+        
+        if not len(V1) == len(V2) or not len(V1) == len(DAC):
+            
+            raise ValueError(f'Incompatible input lengths: len V1: {len(V1)}, len V2: {len(V2)}, len Dac: {len(DAC)}')
+            
+        tstamps = np.arange(0, len(DAC), 1)/f_samp
+        
+        sine = np.sin(2*np.pi*f_stim*tstamps)
+        cosine = np.cos(2*np.pi*f_stim*tstamps)
+        
+        A = np.vstack([cosine, sine, np.ones(len(DAC))]).T
+        V1_1, V1_2, V1_0 = np.linalg.lstsq(A, V1, rcond=None)[0]  # Fit according equation 6
+        V2_1, V2_2, V2_0 = np.linalg.lstsq(A, V2, rcond=None)[0]  # Fit according equation 7
+        
+        Z = (V2_2 + 1j* V2_1)/(V1_2 + 1j* V1_1)*Rs/2 # Apply equation 8, factor is difference between differential and direct on teensy
+        
+        return { 'Z': Z, 'Rs':Rs, 'f_stim': f_stim, 'f_samp': f_samp, 
+                       'V1_1': V1_1, 'V1_2': V1_2, 'V1_0': V1_0, 
+                       'V2_1':  V2_1, 'V2_2': V2_2, 'V2_0': V2_0 }
